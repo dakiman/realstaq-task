@@ -8,6 +8,7 @@ import org.springframework.http.*;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 
@@ -17,24 +18,32 @@ public abstract class BaseClient {
 
     protected abstract String getBaseUrl();
 
-    protected <T> ResponseEntity<T> executeRequest(HttpMethod httpMethod, String path, ParameterizedTypeReference typeReference, Object body, Map<String, ?> params) {
-        RestTemplate restTemplate = getClient();
+    private final RestTemplate restTemplate;
 
-        try {
-            return restTemplate
-                    .exchange(path, httpMethod, getHttpEntity(body), typeReference, params);
-        } catch (HttpServerErrorException | HttpClientErrorException exception) {
-            Object responseBody = null;
-            try {
-                responseBody = new ObjectMapper().readValue(exception.getResponseBodyAsString(), typeReference.getClass());
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException("Error during parsing response!", e);
-            }
-            return new ResponseEntity(responseBody, exception.getStatusCode());
-        }
+    BaseClient() {
+        restTemplate = initRestTemplate();
     }
 
-    private RestTemplate getClient() {
+    protected <T> ResponseEntity<T> executeRequest(HttpMethod httpMethod, String path, ParameterizedTypeReference typeReference, Object body, Map<String, ?> params) {
+        if (!params.isEmpty()) {
+            path = bindQueryParams(path, params);
+        }
+
+        return restTemplate.exchange(path, httpMethod, getHttpEntity(body), typeReference, params);
+    }
+
+    private String bindQueryParams(String path, Map<String, ?> params) {
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromHttpUrl(getBaseUrl() + path);
+        params.forEach((key, value) -> {
+            if (value != null)
+                uriBuilder.queryParam(key, value);
+        });
+
+        path = uriBuilder.build(false).toUriString();
+        return path;
+    }
+
+    private RestTemplate initRestTemplate() {
         return new RestTemplateBuilder()
                 .rootUri(getBaseUrl())
                 .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
